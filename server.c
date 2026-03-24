@@ -91,7 +91,7 @@ int main(int argc, char* argv[]){
             }
             else {
                 // custom socket created for communicatoin between client and server
-                char *message = "WELCOME TO THE CHAT SERVER\r\n";
+                char *message = "WELCOME. Just one more step: Do /join:<name> to officially join the chat application\r\n";
                 if ((write_bytes = write(client_fd, message, strlen(message))) == -1){
                     perror("write");
                     exit(1);
