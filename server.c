@@ -13,7 +13,6 @@ struct client {
     char* name;
     char bufer[MAX_BUF];
     int buf_len;
-    struct in_addr ipaddr;
     int private_room;
 
 }
@@ -26,7 +25,6 @@ static void broadcast_everyone(struct client *top, char *s, int size);
 static void broadcast_room(struct client *top, char *s, int size);
 
 int main(int argc, char* argv[]){
-    setbuf(stdout, NULL);
     // initialize the client array to be default -1 file descriptor each
     initialize_client_array();
 
@@ -39,6 +37,42 @@ int main(int argc, char* argv[]){
     FD_SET(listenfd, &allset);
     maxfd = listenfd; 
 
+    while(1) {
+        tmpset = allset;
+
+        sockets_ready = select(maxfd + 1, $rset, NULL, NULL, NULL)
+
+        if (sockets_ready == 0){
+            continue;
+        }
+
+        if (sockets_ready == -1) {
+            perror("select");
+            continue;
+        }
+
+        // if there is a new client trying to join
+        if (FD_ISSET(listenfd, &rset)) {
+            socklen_t len;
+            struct sockaddr_in q;
+            len = sizeof(q);
+
+            if ((client_fd = accept_connection(listenfd), (struct sockaddr *)&q, &len) == -1) {
+                perror("accept");
+                exit(1);
+            }
+        }
+
+        FD_SET(client_fd, &allset);
+        if (clientfd > maxfd) {
+            maxfd = clientfd;
+        }
+
+
+
+
+    }
+
     
 }
 
@@ -47,14 +81,14 @@ int main(int argc, char* argv[]){
   */
   int bindandlisten(void) {
     // Initialize a struct containing the address of this server.
-    struct sockaddr_in *self = set_up_server_socket(PORT);
+    struct sockaddr_in *self = server_address_struc(PORT);
 
     // Print out information about this server
-    char host[MAX_HOSTNAME];
-    if ((gethostname(host, sizeof(host))) == -1) {
-        perror("gethostname");
-        exit(1);
-    }
+    // char host[MAX_HOSTNAME];
+    // if ((gethostname(host, sizeof(host))) == -1) {
+    //     perror("gethostname");
+    //     exit(1);
+    // }
 
     //fprintf(stderr, "Server hostname: %s\n", host);
     //fprintf(stderr, "Port: %d\n", PORT);
@@ -68,7 +102,7 @@ int main(int argc, char* argv[]){
  * Wait for and accept a new connection.
  * Return -1 if the accept call failed.
  */
- int accept_connection(int listenfd, char*name) {
+ int accept_connection(int listenfd) {
     struct sockaddr_in peer;
     unsigned int peer_len = sizeof(peer);
     peer.sin_family = AF_INET;
@@ -80,9 +114,9 @@ int main(int argc, char* argv[]){
     } 
 
     // see if there is enough space to add to the client_array
-    int client_array_index = add_to_client_array(client_socket);
+    int space_client_array = client_array_has_room;
 
-    if (client_array_index == -1) {
+    if (space_client_array == -1) {
         int write_bytes;
         char *message = "Chat Server Reached Max Capacity. Try again Later!!\r\n"
         if ((write_bytes = write(client_socket, message, strlen(message))) == -1){
@@ -110,7 +144,6 @@ void initialize_client_array(){
     }
 }
 
-
 int client_array_has_room(fd) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (all_client_array[i]->fd != -1){
@@ -120,4 +153,14 @@ int client_array_has_room(fd) {
     }
     // no client arary available so return -1
     return -1;
+}
+
+/* Assuming there is room inside array */
+void add_to_client_array(fd) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (all_client_array[i]->fd != -1){
+            all_client_array[i]->fd  = fd;
+        }
+
+    }
 }
