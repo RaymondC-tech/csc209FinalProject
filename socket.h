@@ -14,6 +14,6 @@ int bindandlisten(int port);
 
 int accept_connection(int listenfd);
 
-int find_network_newline(const char *buf, int n); 
+int find_network_newline(const char *buf, int n, bool full_network); 
 
 #endif

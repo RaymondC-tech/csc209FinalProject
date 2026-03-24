@@ -5,6 +5,7 @@
 #include <arpa/inet.h>     /* inet_ntoa */
 #include <netdb.h>         /* gethostname */
 #include <sys/socket.h>
+#include <stdbool.h>
 
 #include "socket.h"
 
@@ -85,13 +86,23 @@ int set_up_server_socket(struct sockaddr_in *self, int num_queue) {
     return client_socket;
 }
 
-int find_network_newline(const char *buf, int n) {
-    for (int i = 0; i < (n - 1); i ++) {
-        if ((i + 1) < n && (buf[i] == '\r') && (buf[i + 1] == '\n')) {
-            return (2 + i);
+int find_network_newline(const char *buf, int n, bool full_network) {
+    if (full_network) {
+        for (int i = 0; i < (n - 1); i ++) {
+            if ((i + 1) < n && (buf[i] == '\r') && (buf[i + 1] == '\n')) {
+                return (2 + i);
+            }
         }
+        return -1;
     }
-    return -1;
+    else {
+        for (int i = 0; i < (n - 1); i ++) {
+            if ((buf[i] == '\r')) {
+                return (2 + i);
+            }
+        }
+        return -1;
+    }
 }
 
 /******************************************************************************
