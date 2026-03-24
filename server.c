@@ -131,25 +131,38 @@ int main(int argc, char* argv[]){
     return client_socket;
 }
 
-char* handle_client_orchestration(fd, select_client){
+int handle_client_orchestration(fd, select_client){
     // read message and delegate task to handle_client_action
     int nbytes;
     while(nbytes = read(fd, select_client->after, select_client->buf_len)) {
-        select_client->buf_len += nbytes;
-        char *message_end;
-        
-        if ((message_end = strstr(select_client->buf,"\r\n")) != NULL){
-            *message_end = '\0';
-            handle_client_action(fd, select_client, message_end);
-
-            memmove(&select_client->buf, &select_client->buf[message_end + 2], select_client->buf_len - (message_end + 2));
-            select_client->buf_len = (select_client->buf_len - (message_end + 2));
+        if (nbyte == 0) {
+            // socket has closed
+            return -1;
         }
+        elif (nbytes > 0) {
+            select_client->buf_len += nbytes;
+            char *message_end;
+            
+            if ((message_end = strstr(select_client->buf,"\r\n")) != NULL){
+                *message_end = '\0';
+                handle_client_action(fd, select_client, message_end);
 
-        select_client->after = &select_client->buf[select_client->buf_len]; 
-        select_client->room = MAX_BUF - select->client->buf_len;
+                memmove(&select_client->buf, &select_client->buf[message_end + 2], select_client->buf_len - (message_end + 2));
+                select_client->buf_len = (select_client->buf_len - (message_end + 2));
+            }
+
+            select_client->after = &select_client->buf[select_client->buf_len]; 
+            select_client->room = MAX_BUF - select->client->buf_len;
+        }
+        else {
+            perror("read");
+            exit(1);
+        }
     }
+    returnn 1;
 }
+
+
 
 void initialize_client_array(){
     for (int i = 0; i < MAX_CLIENTS; i ++) {
