@@ -11,9 +11,11 @@
 struct client {
     int fd;
     char* name;
-    char bufer[MAX_BUF];
+    char buf[MAX_BUF];
     int buf_len;
     int private_room;
+    char* after;
+    int room;
 
 }
 struct client *all_client_array = malloc(sizeof(struct client) * MAX_CLIENTS);
@@ -40,7 +42,7 @@ int main(int argc, char* argv[]){
     while(1) {
         tmpset = allset;
 
-        sockets_ready = select(maxfd + 1, $rset, NULL, NULL, NULL)
+        sockets_ready = select(maxfd + 1, $rset, NULL, NULL, NULL);
 
         if (sockets_ready == 0){
             continue;
@@ -61,19 +63,22 @@ int main(int argc, char* argv[]){
                 perror("accept");
                 exit(1);
             }
+            FD_SET(client_fd, &allset);
+            if (clientfd > maxfd) {
+                maxfd = clientfd;
+            }
         }
 
-        FD_SET(client_fd, &allset);
-        if (clientfd > maxfd) {
-            maxfd = clientfd;
+        // check client file descriptor to see if they are ready for server to act
+        for(i = 0; i <= maxfd; i++) {
+            if (FD_ISSET(i, &rset)) {
+                // read the message from the client
+                struct client *select_client = all_client_array[i];
+                int result = handle_client_orchestration(i, select_client);
+
+            }
         }
-
-
-
-
     }
-
-    
 }
 
 /* bind and listen, abort on error
@@ -83,20 +88,9 @@ int main(int argc, char* argv[]){
     // Initialize a struct containing the address of this server.
     struct sockaddr_in *self = server_address_struc(PORT);
 
-    // Print out information about this server
-    // char host[MAX_HOSTNAME];
-    // if ((gethostname(host, sizeof(host))) == -1) {
-    //     perror("gethostname");
-    //     exit(1);
-    // }
-
-    //fprintf(stderr, "Server hostname: %s\n", host);
-    //fprintf(stderr, "Port: %d\n", PORT);
-
     // Create an fd to listen to new connections.
     return set_up_server_socket(self, 1);
 }
-
 
 /*
  * Wait for and accept a new connection.
@@ -125,17 +119,36 @@ int main(int argc, char* argv[]){
         }
 
         close(client_socket);
-
-        char *message = "WELCOME TO THE CHAT SERVER\r\n"
-        if ((write_bytes = write(client_socket, message, strlen(message))) == -1){
-            perror("write");
-            exit(1);
-        }
     }
 
+    // custom socket created for communicatoin between client and server
+    char *message = "WELCOME TO THE CHAT SERVER\r\n"
+    if ((write_bytes = write(client_socket, message, strlen(message))) == -1){
+        perror("write");
+        exit(1);
+    }
     // they are connected
     return client_socket;
+}
 
+char* handle_client_orchestration(fd, select_client){
+    // read message and delegate task to handle_client_action
+    int nbytes;
+    while(nbytes = read(fd, select_client->after, select_client->buf_len)) {
+        select_client->buf_len += nbytes;
+        char *message_end;
+        
+        if ((message_end = strstr(select_client->buf,"\r\n")) != NULL){
+            *message_end = '\0';
+            handle_client_action(fd, select_client, message_end);
+
+            memmove(&select_client->buf, &select_client->buf[message_end + 2], select_client->buf_len - (message_end + 2));
+            select_client->buf_len = (select_client->buf_len - (message_end + 2));
+        }
+
+        select_client->after = &select_client->buf[select_client->buf_len]; 
+        select_client->room = MAX_BUF - select->client->buf_len;
+    }
 }
 
 void initialize_client_array(){
@@ -149,7 +162,6 @@ int client_array_has_room(fd) {
         if (all_client_array[i]->fd != -1){
             return i;
         }
-
     }
     // no client arary available so return -1
     return -1;
@@ -160,6 +172,11 @@ void add_to_client_array(fd) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (all_client_array[i]->fd != -1){
             all_client_array[i]->fd  = fd;
+            memset(all_client_array[i]->buf, \0, sizeof(all_client_array[i]->buf))
+            all_client_array[i]->buf_len = 0;
+            all_client_array[i]->private_room  = -1;
+            all_client_array[i]->after  = all_client_array->buf;
+            
         }
 
     }
