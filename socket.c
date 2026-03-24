@@ -85,6 +85,14 @@ int set_up_server_socket(struct sockaddr_in *self, int num_queue) {
     return client_socket;
 }
 
+int find_network_newline(const char *buf, int n) {
+    for (int i = 0; i < (n - 1); i ++) {
+        if ((i + 1) < n && (buf[i] == '\r') && (buf[i + 1] == '\n')) {
+            return (2 + i);
+        }
+    }
+    return -1;
+}
 
 /******************************************************************************
  * Client-specific functions

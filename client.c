@@ -28,6 +28,14 @@ int main(int argc, char* argv[]){
 
     bool client_not_quit = true;
 
+    // information on recieving from server
+    char message[MAX_BUF] = {'\0'};
+    int buf_len = 0;
+    char *after = message;
+    int n_bytes = 0;
+    int room = MAX_BUF;
+    int new_msg_start;
+
     while(client_not_quit) {
         tmpset = allset;
 
@@ -42,11 +50,47 @@ int main(int argc, char* argv[]){
             continue;
         }
 
+
         if (FD_ISSET(client_socket, &tmpset)) {
+
+            n_bytes = read(client_socket, after, room);
+
+            if (n_bytes == -1) {
+                perror("read");
+                exit(1);
+            }
+            
+            if (n_bytes == 0) {
+                // server shutted down
+                // diconnect the client
+            }
+
+            buf_len += n_bytes;;
+            
+            while((new_msg_start = find_network_newline(message, MAX_BUF)) != -1){
+
+                if ((new_msg_start != -1)){
+                    // write it witht he \r\n, dosent hurt
+                    if ((write(STDOUT_FILENO, message, new_msg_start)) == -1) {
+                        perror("write");
+                        exit(1);
+                    }
+    
+                    memmove(message, &message[new_msg_start], buf_len - new_msg_start); 
+
+                    buf_len -= new_msg_start;
+                }
+                after = &message[buf_len];
+                room = MAX_BUF - buf_len;
+            }   
         
         }
 
         if (FD_ISSET(STDIN_FILENO, &tmpset)) {
+            // add \r\n when sending it to server, replace the \r at the \n
+
+            // need to check for windows vs mac: windows end in \r\n and mac is just \n
+            char message[MAX_BUF];
 
         }
 

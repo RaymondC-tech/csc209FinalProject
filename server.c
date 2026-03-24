@@ -7,7 +7,6 @@
 
 
 #define MAX_CLIENTS 32
-#define MAX_BUF 128
 #define MAX_QUEUE 20
 
 #ifndef PORT
@@ -161,13 +160,13 @@ static void handle_client_action(int fd, struct client select_client, char *mess
 
         // check if the message is empty
         if (*position == '\0') {
-            char *message = "Message is blank. Please write something if you wanted to message everyone";
+            char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
             if ((n = write(select_client.fd, message, sizeof(message))) == -1) {
                 perror("write");
                 exit(1);
             }
         }
-        sprintf(msg, "%s: %s", select_client.name, select_client.buf);
+        sprintf(msg, "%s: %s\r\n", select_client.name, select_client.buf);
         broadcast_everyone(msg);
         
     }
