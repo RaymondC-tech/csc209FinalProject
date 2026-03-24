@@ -56,7 +56,34 @@ int set_up_server_socket(struct sockaddr_in *self, int num_queue) {
     return soc;
 }
 
+/* bind and listen, abort on error
+  * returns FD of listening socket
+  */
+  int bindandlisten(int port) {
+    // Initialize a struct containing the address of this server.
+    struct sockaddr_in *self = server_address_struct(port);
 
+    // Create an fd to listen to new connections.
+    return set_up_server_socket(self, 1);
+}
+
+/*
+ * Wait for and accept a new connection.
+ * Return -1 if the accept call failed.
+ */
+ int accept_connection(int listenfd) {
+    struct sockaddr_in peer;
+    unsigned int peer_len = sizeof(peer);
+    peer.sin_family = AF_INET;
+
+    int client_socket = accept(listenfd, (struct sockaddr *)&peer, &peer_len);
+    if (client_socket < 0) {
+        perror("accept");
+        return -1;
+    } 
+
+    return client_socket;
+}
 
 
 /******************************************************************************

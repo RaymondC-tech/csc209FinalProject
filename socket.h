@@ -8,4 +8,8 @@ int set_up_server_socket(struct sockaddr_in *self, int num_queue);
 
 int connect_to_server(int port, const char *hostname);
 
+int bindandlisten(int port);
+
+int accept_connection(int listenfd);
+
 #endif
