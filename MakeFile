@@ -1,0 +1,9 @@
+PORT=57179
+FLAGS = -Wall -g
+
+
+server.o: server.c
+	gcc ${FLAGS} -c server.c
+
+client.o: client.c
+	gcc ${FLAGS} -c client.c
