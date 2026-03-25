@@ -21,12 +21,19 @@ struct client {
     char name[40];
     char buf[MAX_BUF];
     int buf_len;
-    int private_room;
+    int channel;
     char* after;
     int buf_room;
 };
 
+struct channel {
+    int id;
+    char name[40];
+};
+
 struct client all_client_array[MAX_CLIENTS];
+struct channel all_channel_array[MAX_CLIENTS];
+
 
 
 static void initialize_client_array();
@@ -36,6 +43,11 @@ static struct client* return_client_struct(int fd, char* name);
 
 static struct client add_client(int listen_soc, char *name);
 static struct client remove_client(struct client *top, int fd);
+
+
+static void initialize_channel_array();
+static struct channel* get_channel_struct(char *channel_name);
+
 
 static int handle_client_orchestration(int fd, struct client *select_client);
 static void handle_client_action(int fd, struct client *select_client);
@@ -47,8 +59,9 @@ bool extract_content(char *dest, char *src, int offset, char condition);
 
 
 int main(int argc, char* argv[]){
-    // initialize the client array to be default -1 file descriptor each
+    // initialize the client array and channel array to be default -1 file descriptor each
     initialize_client_array();
+    initialize_channel_array();
 
     // socket + bind + listen
     int listenfd = bindandlisten(PORT); // sets up a listening socket
@@ -299,6 +312,57 @@ static void handle_client_action(int fd, struct client *select_client){
             }
         }
 
+        else if(strncmp(select_client->buf, "/join_channel:", 14) == 0) {
+            // see if they are in a channel already
+            if (select_client->channel != -1){
+                char *message = "You are already in a channel. Leave it First\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // see if they put channel name
+            position = (select_client->buf) + 14;
+
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Channel name did not specify! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // get channel name
+            char channel_name[MAX_BUF];
+            extract_content(channel_name, select_client->buf, 14, '\r');
+
+
+            // see if the channel exists
+            struct channel* channel_struct = get_channel_struct(channel_name);
+
+            if (channel_struct == NULL){
+                char *message = "Channel name does not exist! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // add channel id to there client struct and give messsage
+            select_client->channel = channel_struct->id;
+
+            snprintf(final_message, sizeof(final_message),"Successfully join: %s\r\n", channel_struct->name);
+
+            // send confirming message that you joined channel
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
+        }
         else {
             // check to see if the user joined first before hand
             char *message = "INVALID COMMAND TRY AGAIN\r\n";
@@ -346,7 +410,7 @@ static void add_to_client_array(int fd) {
             memset(all_client_array[i].name, '\0', sizeof(all_client_array[i].name));
             memset(all_client_array[i].buf, '\0', sizeof(all_client_array[i].buf));
             all_client_array[i].buf_len = 0;
-            all_client_array[i].private_room  = -1;
+            all_client_array[i].channel  = -1;
             all_client_array[i].after  = all_client_array[i].buf;
             all_client_array[i].buf_room = MAX_BUF;
             break;
@@ -365,6 +429,21 @@ static struct client* return_client_struct(int fd, char *name){
             if (strcmp(all_client_array[i].name, name) == 0){
                 return &all_client_array[i];
             }
+        }
+    }
+    return NULL;
+}
+
+static void initialize_channel_array(){
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        all_channel_array[i].id = -1;
+        memset(all_channel_array[i].name, '\0', sizeof(all_channel_array[i].name));
+    }
+}
+static struct channel* get_channel_struct(char *channel_name) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (strcmp(all_channel_array[i].name, channel_name) == 0){
+            return &all_channel_array[i];
         }
     }
     return NULL;
