@@ -301,6 +301,12 @@ static void handle_client_action(int fd, struct client *select_client){
 
         else {
             // check to see if the user joined first before hand
+            char *message = "INVALID COMMAND TRY AGAIN\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
         }
     }
 }
