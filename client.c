@@ -16,7 +16,9 @@ int main(int argc, char* argv[]){
     setbuf(stdout, NULL);
 
     // create socket + connect (// port + hostname)
+    // this adds welcome message to the buffer
     int client_socket = connect_to_server(strtol(argv[2], NULL, 10), argv[1]);
+
 
     int maxfd, sockets_ready;
     fd_set allset;
@@ -70,23 +72,31 @@ int main(int argc, char* argv[]){
 
             buf_len += n_bytes;;
             // full network is true to get \r\n from server
-            while((new_msg_start = find_network_newline(message, buf_len, true)) != -1){
+            // ab\r\erere\r\n
+            // ab\r\n
+            new_msg_start = find_network_newline(message, buf_len, true)) != -1)
 
-                if ((new_msg_start != -1)){
-                    // write it witht he \r\n, dosent hurt
-                    if ((write(STDOUT_FILENO, message, new_msg_start)) == -1) {
-                        perror("write");
-                        exit(1);
-                    }
-                    
-                    // can do &message[new_msg_start] and new_msg_start is out of bounds only when new_msg_start is one pass the boundary
-                    memmove(message, &message[new_msg_start], buf_len - new_msg_start); 
-
-                    buf_len -= new_msg_start;
+            if ((new_msg_start != -1)){
+                // write it witht he \r\n, dosent hurt
+                if ((write(STDOUT_FILENO, message, new_msg_start)) == -1) {
+                    perror("write");
+                    exit(1);
                 }
-                after = &message[buf_len];
-                room = MAX_BUF - buf_len;
-            }   
+                
+                // can do &message[new_msg_start] and new_msg_start is out of bounds only when new_msg_start is one pass the boundary
+                memmove(message, &message[new_msg_start], buf_len - new_msg_start); 
+
+                // clear buf
+                if ((buf_len - new_msg_start) == 0) {
+                    memset(message, '\0', MAX_BUF);
+                }
+
+                buf_len -= new_msg_start;
+            }
+
+            after = &message[buf_len];
+            room = MAX_BUF - buf_len;
+            
         }
 
         if (FD_ISSET(STDIN_FILENO, &tmpset)) {
