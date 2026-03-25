@@ -32,7 +32,7 @@ struct client all_client_array[MAX_CLIENTS];
 static void initialize_client_array();
 static int client_array_has_room(int fd);
 static void add_to_client_array(int fd);
-static struct client* return_client_struct(int fd);
+static struct client* return_client_struct(int fd, char* name);
 
 static struct client add_client(int listen_soc, char *name);
 static struct client remove_client(struct client *top, int fd);
@@ -43,7 +43,7 @@ static void handle_client_action(int fd, struct client *select_client);
 static void broadcast_everyone(char *message);
 static void broadcast_room(struct client *top, char *s, int size);
 
-char *extract_message(char *dest, char *src, int offset);
+bool extract_content(char *dest, char *src, int offset, char condition);
 
 
 int main(int argc, char* argv[]){
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]){
         for(int i = 0; i <= maxfd; i++) {
             if (i != listenfd && FD_ISSET(i, &tmpset)) {
                 // call our orchestartion function to hanle it
-                struct client* client_strut = return_client_struct(i);
+                struct client* client_strut = return_client_struct(i, NULL);
                 int result = handle_client_orchestration(i, client_strut);
             }
         }
@@ -201,11 +201,12 @@ static void handle_client_action(int fd, struct client *select_client){
             exit(1); //chagne ghe static functon header + this sissdue
         }
     }
-    // HERE ARE ALL THE NON-JOIN COMMANDS. CLIENT MUST JOIN FIRST BEFORE DOING ANYTHING. THIS WILL BE ONE OF THE ERROR CHECKING WE WILL WRITE ON REPORT
-    else{
-        // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
 
-        // 1. Check if message is empty
+    else{
+        // HERE ARE ALL THE NON-JOIN COMMANDS. CLIENT MUST JOIN FIRST BEFORE DOING ANYTHING. THIS WILL BE ONE OF THE ERROR CHECKING WE WILL WRITE ON REPORT
+
+
+        // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
         if (strncmp(select_client->buf, "/msg_all:", 9) == 0) {
             position = select_client->buf + 9;
 
@@ -216,17 +217,91 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
+                return;
             }
-            extract_message(server_message, select_client->buf, 9);
+            bool valid_command = extract_content(server_message, select_client->buf, 9, '\r');
+
+            if (!valid_command) {
+                char *message = "Invalid command. Please follow the commands exactly\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
             // 2. not empty, get the person name who sent it, get the message, broadcast message to everyone
             snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
 
             broadcast_everyone(final_message);
         }
+
+        // 3. Message a specific person: /msg_<person>:<message>
+        else if(strncmp(select_client->buf, "/msg_", 5) == 0) {
+            // extract the person name to send message to out
+            char sender_name[MAX_NAME] = {'\0'};
+
+            // check if they have a : in the request
+            bool valid_command = extract_content(sender_name, select_client->buf, 5, ':');
+
+            if (!valid_command) {
+                char *message = "Invalid command. Please follow the commands exactly\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // check if they even specified the person
+            if (sender_name[0] == '\0'){
+                char *message = "Did not specify a person to message\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1){
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // check if that person exists
+            struct client *receiver_struct = return_client_struct(-1, sender_name);
+
+            if (receiver_struct == NULL) {
+                char *message = "Person You Message Does Not Exists\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1){
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // check if message is empty
+            position = select_client->buf + 5 + strlen(sender_name) + 1;
+
+            // 1. check if the message is empty
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+
+            }
+
+            // extract the message, ignore return value, message always has \r
+            extract_content(server_message, select_client->buf, 5 + strlen(sender_name) + 1, '\r');
+            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+
+            // message to that person
+            if (write(receiver_struct->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
+        }
+
         else {
             // check to see if the user joined first before hand
         }
-
     }
 }
 
@@ -273,20 +348,34 @@ static void add_to_client_array(int fd) {
     }
 }
 
-static struct client* return_client_struct(int fd){
+static struct client* return_client_struct(int fd, char *name){
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (all_client_array[i].fd == fd){
-            return &all_client_array[i];
+        if (fd != -1){
+            if (all_client_array[i].fd == fd){
+                return &all_client_array[i];
+            }
+        }
+        else {
+            if (strcmp(all_client_array[i].name, name) == 0){
+                return &all_client_array[i];
+            }
         }
     }
     return NULL;
 }
 
-char *extract_message(char *dest, char *src, int offset){
+bool extract_content(char *dest, char *src, int offset, char condition){
     int i = offset;
-    while (src[i] != '\r') {
+    while (src[i] != condition && src[i] != '\r') {
         dest[i - offset] = src[i];
         i += 1;
     }
+
+    // condition did not get meet
+    if (src[i] == '\r' && condition != '\r'){
+        return false;
+    }
     dest[i - offset] = '\0';
+
+    return true;
 }
