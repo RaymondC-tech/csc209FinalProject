@@ -9,6 +9,7 @@
 #define MAX_CHANNELS 32
 #define MAX_QUEUE 20
 #define MAX_NAME 40
+#define MAX_CHANNEL_NAME 40
 #define MAX_CHANNEL_PER_CLIENT 4
 
 #ifndef PORT
@@ -29,7 +30,7 @@ struct client {
 
 struct channel {
     int id;
-    char name[40];
+    char name[MAX_CHANNEL_NAME];
 };
 
 struct client all_client_array[MAX_CLIENTS];
@@ -248,6 +249,88 @@ static void handle_client_action(int fd, struct client *select_client){
 
             broadcast_everyone(final_message);
         }
+        else if(strncmp(select_client->buf, "/msg_channel_", 13) == 0){
+            // see if they put channel name
+            position = (select_client->buf) + 13;
+
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Channel name did not specify! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // see if the channel exists + valid command
+            char channel_name[MAX_CHANNEL_NAME] = {'\0'};
+            bool valid_command = extract_content(channel_name, select_client->buf, 13, ':');
+            struct channel* channel_struct = get_channel_struct(channel_name);
+
+            if (channel_struct == NULL){
+                char *message = "Channel name does not exist! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+            
+            if (!valid_command) {
+                char *message = "Invalid command. Please follow the commands exactly\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // see if they are in the channel already
+            bool in_channel = false;
+
+            for (int i = 0; i < MAX_CHANNEL_PER_CLIENT; i ++){
+                if (select_client->channel[i] == channel_struct->id){
+                    in_channel = true;
+                }
+            }
+
+            if (!in_channel){
+                char *message = "You are not in the channel. Join first!\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // extract the message, ignore return value, message always has \r
+            extract_content(server_message, select_client->buf, 13 + strlen(channel_name) + 1, '\r');
+
+            // see if they inputed a message:
+            if (server_message[0] == '\0'){
+                char *message = "You did not input a message to broadcast to server. Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+
+            // message to everyone in that channel
+            for (int i = 0; i < MAX_CLIENTS; i ++){
+                if (all_client_array[i].fd != -1){
+                    for (int j = 0; j < MAX_CHANNEL_PER_CLIENT; j ++){
+                        if (all_client_array[i].channel[j] == channel_struct->id){
+                            if (write(all_client_array[i].fd, final_message, strlen(final_message)) == -1) {
+                                perror("write");
+                                exit(1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 3. Message a specific person: /msg_<person>:<message>
         else if(strncmp(select_client->buf, "/msg_", 5) == 0) {
@@ -325,7 +408,7 @@ static void handle_client_action(int fd, struct client *select_client){
             }
 
             // extract the channel name out
-            char channel_name[40];
+            char channel_name[MAX_CHANNEL_NAME];
             extract_content(channel_name, select_client->buf, 16, '\r');
 
             // see if there are any more rooms to add channel or duplicate channel name
@@ -496,14 +579,15 @@ static void handle_client_action(int fd, struct client *select_client){
                 exit(1);
             }
         }
+
         else {
             // check to see if the user joined first before hand
             char *message = "INVALID COMMAND TRY AGAIN\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
-                return;
+            if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                perror("write");
+                exit(1);
+            }
+            return;
         }
     }
 }
