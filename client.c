@@ -74,9 +74,7 @@ int main(int argc, char* argv[]){
             // full network is true to get \r\n from server
             // ab\r\erere\r\n
             // ab\r\n
-            new_msg_start = find_network_newline(message, buf_len, true)) != -1)
-
-            if ((new_msg_start != -1)){
+            while ((new_msg_start = find_network_newline(message, buf_len, true)) != -1){
                 // write it witht he \r\n, dosent hurt
                 if ((write(STDOUT_FILENO, message, new_msg_start)) == -1) {
                     perror("write");
@@ -86,17 +84,15 @@ int main(int argc, char* argv[]){
                 // can do &message[new_msg_start] and new_msg_start is out of bounds only when new_msg_start is one pass the boundary
                 memmove(message, &message[new_msg_start], buf_len - new_msg_start); 
 
-                // clear buf
+                // clear buf if that is only message inside buffer
                 if ((buf_len - new_msg_start) == 0) {
                     memset(message, '\0', MAX_BUF);
                 }
 
                 buf_len -= new_msg_start;
             }
-
             after = &message[buf_len];
             room = MAX_BUF - buf_len;
-            
         }
 
         if (FD_ISSET(STDIN_FILENO, &tmpset)) {
@@ -112,6 +108,7 @@ int main(int argc, char* argv[]){
             int index;
             if ((index = find_network_newline(client_input, n_bytes, true)) == -1) {
                 index = find_network_newline(client_input, n_bytes, false);
+                // fprintf(STDOUT_FILENO, "%d", index);
                 client_input[index - 2] = '\r';
                 client_input[index - 1] = '\n';
             }
@@ -138,20 +135,3 @@ static void call_server(char *client_input, int client_socket, int bytes_to_writ
 }
 
 
-// find where the \n characther is
-// int j;
-// for (int j = 0; j < MAX_BUF; j ++){
-//     if (client_input[j] == '\n') {
-//         break;
-//     }
-// }
- // empty|empty|/msg_all:Hello\r\n
-    // 
-    // j = 15
-    // bytes to read: 16
-
-    // if strncmp("/msg_all:", client_input, j + 1) {
-    //     // see if they wrote empty or not
-
-
-    // }

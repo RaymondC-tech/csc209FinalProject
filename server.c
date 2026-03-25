@@ -23,7 +23,7 @@ struct client {
     int buf_len;
     int private_room;
     char* after;
-    int room;
+    int buf_room;
 };
 
 struct client all_client_array[MAX_CLIENTS];
@@ -32,6 +32,7 @@ struct client all_client_array[MAX_CLIENTS];
 static void initialize_client_array();
 static int client_array_has_room(int fd);
 static void add_to_client_array(int fd);
+static struct client* return_client_struct(int fd);
 
 static struct client add_client(int listen_soc, char *name);
 static struct client remove_client(struct client *top, int fd);
@@ -106,17 +107,15 @@ int main(int argc, char* argv[]){
             }
         }
 
-        // 2nd ACTION. RESPONDING TO CLIENT'S REQUEST
-        for(int i = 0; i < MAX_CLIENTS; i++) {
-            int client_ready_socket = all_client_array[i].fd;
-            if (client_ready_socket != -1 && FD_ISSET(client_ready_socket, &tmpset)) {
+        // 2nd ACTION. RESPONDING TO EXISTING CLIENT'S REQUEST
+        for(int i = 0; i <= maxfd; i++) {
+            if (i != listenfd && FD_ISSET(i, &tmpset)) {
                 // call our orchestartion function to hanle it
-                int result = handle_client_orchestration(client_ready_socket, &all_client_array[i]);
+                struct client* client_strut = return_client_struct(i);
+                int result = handle_client_orchestration(i, client_strut);
             }
         }
-        
     }
-
     // LAST ACTION: CLOSE SERVER LISTENING SOCKET
     close(listenfd);
 }
@@ -125,25 +124,31 @@ int main(int argc, char* argv[]){
 static int handle_client_orchestration(int fd, struct client *select_client){
     // read message and delegate task to handle_client_action
     int nbytes;
-    nbytes = read(fd, select_client->after, select_client->room);
+    nbytes = read(fd, select_client->after, select_client->buf_room);
     if (nbytes == 0) {
         // socket has closed
         return -1;
     }
     else if (nbytes > 0) {
         select_client->buf_len += nbytes;
-        char *message_end;
+        int message_end;
         
-        if ((message_end = strstr(select_client->buf,"\r\n")) != NULL){
+        while ((message_end = find_network_newline(select_client->buf, select_client->buf_len, true)) != -1){
             handle_client_action(fd, select_client);
             
             // no need to subtract since pointer arithmetic gives int
-            memmove(select_client->buf, message_end + 2, (select_client->buf_len - (message_end + 2 - select_client->buf))); 
+            memmove(select_client->buf, &select_client->buf[message_end], (select_client->buf_len - message_end)); 
 
-            select_client->buf_len = select_client->buf_len - (message_end + 2 - select_client->buf);
+            select_client->buf_len = select_client->buf_len - message_end;
+            
+            // if select_client_buf_len == message_end + 2
+            if (select_client->buf_len == 0) {
+                memset(select_client->buf, '\0', sizeof(select_client->buf));
+            }
+
         }
         select_client->after = &select_client->buf[select_client->buf_len]; 
-        select_client->room = MAX_BUF - select_client->buf_len;
+        select_client->buf_room = MAX_BUF - select_client->buf_len;
     }
     else {
         perror("read");
@@ -164,7 +169,7 @@ static void handle_client_action(int fd, struct client *select_client){
         position = (select_client->buf) + 6;
 
         // 1. check if the message is empty
-        if (*position == '\r') {
+        if (*position == '\r' && *(position + 1) == '\n') {
             char *message = "Message is blank. Please write you name to join, max 30 character name\r\n";
             if ((n = write(select_client->fd, message, strlen(message))) == -1) {
                 perror("write");
@@ -173,11 +178,11 @@ static void handle_client_action(int fd, struct client *select_client){
         }
         // 2. not empty, get the name, add the name, and write message
         int i = 6;
-        while(select_client->buf[i] != '\n'){
+        while(select_client->buf[i] != '\r'){
             select_client->name[i - 6] = select_client->buf[i];
             i += 1;
         }
-        select_client->name[i] = '\0';
+        select_client->name[i - 6] = '\0';
 
         char message[150];
         snprintf(message, sizeof(message), "WELCOME %s to chat application\r\n", select_client->name); 
@@ -211,7 +216,6 @@ static void handle_client_action(int fd, struct client *select_client){
         }
 
     }
-
 }
 
 static void broadcast_everyone(char *message){
@@ -226,7 +230,7 @@ static void broadcast_everyone(char *message){
 }
 
 static void initialize_client_array(){
-    for (int i = 0; i < MAX_CLIENTS; i ++) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
         all_client_array[i].fd = -1;
     }
 }
@@ -245,13 +249,23 @@ static int client_array_has_room(int fd) {
 static void add_to_client_array(int fd) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (all_client_array[i].fd == -1){
-            all_client_array[i].fd  = fd;
+            all_client_array[i].fd = fd;
             memset(all_client_array[i].name, '\0', sizeof(all_client_array[i].name));
             memset(all_client_array[i].buf, '\0', sizeof(all_client_array[i].buf));
             all_client_array[i].buf_len = 0;
             all_client_array[i].private_room  = -1;
             all_client_array[i].after  = all_client_array[i].buf;
+            all_client_array[i].buf_room = MAX_BUF;
             break;
         }
     }
+}
+
+static struct client* return_client_struct(int fd){
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (all_client_array[i].fd == fd){
+            return &all_client_array[i];
+        }
+    }
+    return NULL;
 }

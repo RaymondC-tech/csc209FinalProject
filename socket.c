@@ -96,9 +96,9 @@ int find_network_newline(const char *buf, int n, bool full_network) {
         return -1;
     }
     else {
-        for (int i = 0; i < (n - 1); i ++) {
-            if ((buf[i] == '\r')) {
-                return (2 + i);
+        for (int i = 0; i < n; i ++) {
+            if ((buf[i] == '\n')) {
+                return (1 + i);
             }
         }
         return -1;
