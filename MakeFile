@@ -1,5 +1,14 @@
-PORT=57179
-FLAGS = -Wall -g
 
-%.o: %.c socket.h
-	gcc ${FLAGS} -c $<
+FLAGS = -Wall -g
+.PHONY: clean all
+
+all: client server
+
+client: client.c socket.c
+	gcc ${FLAGS} client.c socket.c -o client
+
+server: server.c socket.c
+	gcc ${FLAGS} server.c socket.c -o server
+
+clean:
+	rm -f server client 

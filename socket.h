@@ -2,6 +2,7 @@
 #define _SOCKET_H_
 
 #include <netinet/in.h>    /* Internet domain header, for struct sockaddr_in */
+#include <stdbool.h>
 
 #define MAX_BUF 128
 

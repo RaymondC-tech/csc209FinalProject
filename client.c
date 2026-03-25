@@ -12,7 +12,7 @@
 static void call_server(char* client_input, int client_socket, int bytes_to_write);
 
 int main(int argc, char* argv[]){
-    // call it as ./client.c 127.0.0.1 57179
+    // call it as ./client.c 127.0.0.1 57179  (hostname, port)
     setbuf(stdout, NULL);
 
     // create socket + connect (// port + hostname)
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]){
 
             buf_len += n_bytes;;
             // full network is true to get \r\n from server
-            while((new_msg_start = find_network_newline(message, MAX_BUF, true)) != -1){
+            while((new_msg_start = find_network_newline(message, buf_len, true)) != -1){
 
                 if ((new_msg_start != -1)){
                     // write it witht he \r\n, dosent hurt
@@ -111,7 +111,7 @@ int main(int argc, char* argv[]){
     close(client_socket);
 }
 
-static void call_server(client_input, client_socket, bytes_to_write) {
+static void call_server(char *client_input, int client_socket, int bytes_to_write) {
     // get rid of trailing front spcaes (if all trailing spcae, we still send it over to get server to invalidate it because this function is returning nothing)
     int i = 0;
     while(i < (bytes_to_write - 1) && client_input[i] == ' ') {
