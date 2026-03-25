@@ -9,6 +9,9 @@
 
 #include "socket.h"
 
+
+// EXACT COPY AND PASTE OF SOCKET LAB TO SET UP SOCKET CONNECTION
+
 /*
  * Initialize a server address associated with the given port.
  */

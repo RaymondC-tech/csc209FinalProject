@@ -5,10 +5,11 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-
 #define MAX_CLIENTS 32
+#define MAX_CHANNELS 32
 #define MAX_QUEUE 20
 #define MAX_NAME 40
+#define MAX_CHANNEL_PER_CLIENT 4
 
 #ifndef PORT
   #define PORT 57179
@@ -21,7 +22,7 @@ struct client {
     char name[40];
     char buf[MAX_BUF];
     int buf_len;
-    int channel;
+    int channel[MAX_CHANNEL_PER_CLIENT];
     char* after;
     int buf_room;
 };
@@ -35,7 +36,6 @@ struct client all_client_array[MAX_CLIENTS];
 struct channel all_channel_array[MAX_CLIENTS];
 
 
-
 static void initialize_client_array();
 static int client_array_has_room(int fd);
 static void add_to_client_array(int fd);
@@ -47,6 +47,7 @@ static struct client remove_client(struct client *top, int fd);
 
 static void initialize_channel_array();
 static struct channel* get_channel_struct(char *channel_name);
+static int exists_channel_room(char *channel_name);
 
 
 static int handle_client_orchestration(int fd, struct client *select_client);
@@ -198,6 +199,7 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
+            return;
         }
         // 2. not empty, get the name, add the name, and write message
         int i = 6;
@@ -217,7 +219,6 @@ static void handle_client_action(int fd, struct client *select_client){
 
     else{
         // HERE ARE ALL THE NON-JOIN COMMANDS. CLIENT MUST JOIN FIRST BEFORE DOING ANYTHING. THIS WILL BE ONE OF THE ERROR CHECKING WE WILL WRITE ON REPORT
-
 
         // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
         if (strncmp(select_client->buf, "/msg_all:", 9) == 0) {
@@ -298,7 +299,6 @@ static void handle_client_action(int fd, struct client *select_client){
                     exit(1);
                 }
                 return;
-
             }
 
             // extract the message, ignore return value, message always has \r
@@ -311,11 +311,12 @@ static void handle_client_action(int fd, struct client *select_client){
                 exit(1);
             }
         }
+        else if(strncmp(select_client->buf, "/create_channel:", 16) == 0) {
+            // see if they put channel name
+            position = (select_client->buf) + 16;
 
-        else if(strncmp(select_client->buf, "/join_channel:", 14) == 0) {
-            // see if they are in a channel already
-            if (select_client->channel != -1){
-                char *message = "You are already in a channel. Leave it First\r\n";
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Channel name did not specify! Try again\r\n";
                 if ((n = write(select_client->fd, message, strlen(message))) == -1) {
                     perror("write");
                     exit(1);
@@ -323,6 +324,47 @@ static void handle_client_action(int fd, struct client *select_client){
                 return;
             }
 
+            // extract the channel name out
+            char channel_name[40];
+            extract_content(channel_name, select_client->buf, 16, '\r');
+
+            // see if there are any more rooms to add channel or duplicate channel name
+            int channel_array_index = exists_channel_room(channel_name);
+
+
+            if (channel_array_index == -1){
+                char *message = "Max channel created for the server. Sorry\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            if (channel_array_index == -2){
+                char *message = "Duplicated channel name. Use a different channel name\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            all_channel_array[channel_array_index].id = channel_array_index;
+            strcpy(all_channel_array[channel_array_index].name, channel_name);
+
+            snprintf(final_message, sizeof(final_message),"Successfully created channel: %s\r\n", all_channel_array[channel_array_index].name);
+
+            // send confirming message that you created channel
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
+
+        }
+
+        // JOIN A CHANNEL
+        else if(strncmp(select_client->buf, "/join_channel:", 14) == 0) {
             // see if they put channel name
             position = (select_client->buf) + 14;
 
@@ -339,7 +381,6 @@ static void handle_client_action(int fd, struct client *select_client){
             char channel_name[MAX_BUF];
             extract_content(channel_name, select_client->buf, 14, '\r');
 
-
             // see if the channel exists
             struct channel* channel_struct = get_channel_struct(channel_name);
 
@@ -352,8 +393,43 @@ static void handle_client_action(int fd, struct client *select_client){
                 return;
             }
 
-            // add channel id to there client struct and give messsage
-            select_client->channel = channel_struct->id;
+            // see if they are in the channel already OR if they reached max channel limit
+            bool in_channel;
+            int num_channel_join = 0;
+            int valid_index;
+
+            for (int i = 0; i < MAX_CHANNEL_PER_CLIENT; i ++){
+                if (select_client->channel[i] == channel_struct->id){
+                    in_channel = true;
+                }
+
+                if (select_client->channel[i] != -1) {
+                    num_channel_join += 1;
+                }
+                else{
+                    valid_index = i;
+                }
+            }
+
+            if (in_channel){
+                char *message = "You are already in a channel. Leave it First\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+            if (num_channel_join == MAX_CHANNEL_PER_CLIENT){
+                char *message = "You are already in a channel. Leave it First\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // add channel id to the client struct and give messsage
+            select_client->channel[valid_index] = channel_struct->id;
 
             snprintf(final_message, sizeof(final_message),"Successfully join: %s\r\n", channel_struct->name);
 
@@ -410,7 +486,7 @@ static void add_to_client_array(int fd) {
             memset(all_client_array[i].name, '\0', sizeof(all_client_array[i].name));
             memset(all_client_array[i].buf, '\0', sizeof(all_client_array[i].buf));
             all_client_array[i].buf_len = 0;
-            all_client_array[i].channel  = -1;
+            memset(all_client_array[i].channel, -1, sizeof(all_client_array[i].channel));
             all_client_array[i].after  = all_client_array[i].buf;
             all_client_array[i].buf_room = MAX_BUF;
             break;
@@ -435,18 +511,32 @@ static struct client* return_client_struct(int fd, char *name){
 }
 
 static void initialize_channel_array(){
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < MAX_CHANNELS; i++) {
         all_channel_array[i].id = -1;
         memset(all_channel_array[i].name, '\0', sizeof(all_channel_array[i].name));
     }
 }
+
 static struct channel* get_channel_struct(char *channel_name) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < MAX_CHANNELS; i++) {
         if (strcmp(all_channel_array[i].name, channel_name) == 0){
             return &all_channel_array[i];
         }
     }
     return NULL;
+}
+
+static int exists_channel_room(char *channel_name){
+    int channel_array_index = -1;
+    for(int i = 0; i < MAX_CHANNELS; i ++){
+        if (all_channel_array[i].id == -1){
+            channel_array_index = i;
+        }
+        if (strcmp(all_channel_array[i].name, channel_name) == 0){
+            return -2;
+        }
+    }
+    return channel_array_index;
 }
 
 bool extract_content(char *dest, char *src, int offset, char condition){
