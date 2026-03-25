@@ -355,7 +355,7 @@ static void handle_client_action(int fd, struct client *select_client){
 
             snprintf(final_message, sizeof(final_message),"Successfully created channel: %s\r\n", all_channel_array[channel_array_index].name);
 
-            // send confirming message that you created channel
+            // send confirming message that you joined channel channel
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
                 perror("write");
                 exit(1);
@@ -434,6 +434,63 @@ static void handle_client_action(int fd, struct client *select_client){
             snprintf(final_message, sizeof(final_message),"Successfully join: %s\r\n", channel_struct->name);
 
             // send confirming message that you joined channel
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
+        } else if(strncmp(select_client->buf, "/leave_channel:", 15) == 0) {
+            // see if they put channel name
+            position = (select_client->buf) + 15;
+
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Channel name did not specify! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // get channel name
+            char channel_name[MAX_BUF];
+            extract_content(channel_name, select_client->buf, 15, '\r');
+
+            // see if the channel exists
+            struct channel* channel_struct = get_channel_struct(channel_name);
+
+            if (channel_struct == NULL){
+                char *message = "Channel name does not exist! Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // see if they are in the channel already
+            int client_channel_index = -1;
+
+            for (int i = 0; i < MAX_CHANNEL_PER_CLIENT; i ++){
+                if (select_client->channel[i] == channel_struct->id){
+                    client_channel_index = i;
+                }
+            }
+
+            if (client_channel_index == -1){
+                char *message = "You are not in this channel. Cant't leave\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // remove channel id in client struct and give messsage
+            select_client->channel[client_channel_index] = -1;
+
+            snprintf(final_message, sizeof(final_message),"Successfully left: %s\r\n", channel_struct->name);
+
+            // send confirming message that you left channel
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
                 perror("write");
                 exit(1);
