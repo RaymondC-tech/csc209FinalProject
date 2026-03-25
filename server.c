@@ -43,6 +43,8 @@ static void handle_client_action(int fd, struct client *select_client);
 static void broadcast_everyone(char *message);
 static void broadcast_room(struct client *top, char *s, int size);
 
+char *extract_message(char *dest, char *src, int offset);
+
 
 int main(int argc, char* argv[]){
     // initialize the client array to be default -1 file descriptor each
@@ -120,7 +122,6 @@ int main(int argc, char* argv[]){
     close(listenfd);
 }
 
-
 static int handle_client_orchestration(int fd, struct client *select_client){
     // read message and delegate task to handle_client_action
     int nbytes;
@@ -160,7 +161,16 @@ static int handle_client_orchestration(int fd, struct client *select_client){
 static void handle_client_action(int fd, struct client *select_client){
     // client can 2. private dm, 3. dm all, 4. create room, 5. join room, 6. see who is online, 7. send emojis
     // assuming when they first connect, they already joined the chat application server
-    char msg[MAX_BUF];
+
+    // final_message are all mesages with person who sent it + message like Alice: So call guys
+    char final_message[MAX_BUF];
+
+    // server_message is the specific message send by the person
+    char server_message[MAX_BUF];
+
+    // server_event are not direclty messages to someone, but broadcast an event
+    // Alice: joined coffee channel
+    char server_event[MAX_BUF];
     char *position;
     int n;
 
@@ -184,10 +194,9 @@ static void handle_client_action(int fd, struct client *select_client){
         }
         select_client->name[i - 6] = '\0';
 
-        char message[150];
-        snprintf(message, sizeof(message), "WELCOME %s to chat application\r\n", select_client->name); 
+        snprintf(final_message, sizeof(final_message), "WELCOME %s to chat application\r\n", select_client->name); 
 
-        if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+        if ((n = write(select_client->fd, final_message, strlen(final_message))) == -1) {
             perror("write");
             exit(1); //chagne ghe static functon header + this sissdue
         }
@@ -195,21 +204,24 @@ static void handle_client_action(int fd, struct client *select_client){
     // HERE ARE ALL THE NON-JOIN COMMANDS. CLIENT MUST JOIN FIRST BEFORE DOING ANYTHING. THIS WILL BE ONE OF THE ERROR CHECKING WE WILL WRITE ON REPORT
     else{
         // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
-        if (strstr(select_client->buf, "/msg_all:") != NULL) {
+
+        // 1. Check if message is empty
+        if (strncmp(select_client->buf, "/msg_all:", 9) == 0) {
             position = select_client->buf + 9;
 
             // 1. check if the message is empty
-            if (*position == '\0') {
+            if (*position == '\r' && *(position + 1) == '\n') {
                 char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
                 if ((n = write(select_client->fd, message, strlen(message))) == -1) {
                     perror("write");
                     exit(1);
                 }
             }
-            
-            // 2. not empty, get the message, broadcast message to everyone
-            sprintf(msg, "%s: %s\r\n", select_client->name, select_client->buf);
-            broadcast_everyone(msg);
+            extract_message(server_message, select_client->buf, 9);
+            // 2. not empty, get the person name who sent it, get the message, broadcast message to everyone
+            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+
+            broadcast_everyone(final_message);
         }
         else {
             // check to see if the user joined first before hand
@@ -268,4 +280,13 @@ static struct client* return_client_struct(int fd){
         }
     }
     return NULL;
+}
+
+char *extract_message(char *dest, char *src, int offset){
+    int i = offset;
+    while (src[i] != '\r') {
+        dest[i - offset] = src[i];
+        i += 1;
+    }
+    dest[i - offset] = '\0';
 }
