@@ -600,6 +600,25 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
+        } else if(strncmp(select_client->buf, "/list_channel", 13) == 0) {
+            // assume that results fit here
+            char result[(MAX_CHANNEL_NAME * 4) + 6] = {'\0'};
+            for (int i = 0; i < MAX_CHANNEL_PER_CLIENT; i ++){
+                if (select_client->channel[i] != -1){
+                    if (result[0] != '\0') {
+                        strcat(result, ", ");
+                    }
+                    // the value of at channel[i] if not -1 is the id of the channel which is the same as the index inside all_channel_array
+                    strcat(result, all_channel_array[select_client->channel[i]].name);
+                }
+            }
+
+            snprintf(final_message, sizeof(final_message), "Channels Currently In: %s\r\n", result);
+
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
         }
 
         else {
