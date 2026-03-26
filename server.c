@@ -43,7 +43,7 @@ static void add_to_client_array(int fd);
 static struct client* return_client_struct(int fd, char* name);
 
 static struct client add_client(int listen_soc, char *name);
-static struct client remove_client(struct client *top, int fd);
+static void remove_client(struct client *select_client, fd_set *allset, int *maxfd);
 
 
 static void initialize_channel_array();
@@ -51,8 +51,8 @@ static struct channel* get_channel_struct(char *channel_name);
 static int exists_channel_room(char *channel_name);
 
 
-static int handle_client_orchestration(int fd, struct client *select_client);
-static void handle_client_action(int fd, struct client *select_client);
+static int handle_client_orchestration(int fd, struct client *select_client, fd_set *allset, int *maxfd);
+static int handle_client_action(int fd, struct client *select_client, fd_set *allset, int *maxfd);
 
 static void broadcast_everyone(char *message);
 static void broadcast_room(struct client *select_client, char *channel_name, char *message);
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]){
             if (i != listenfd && FD_ISSET(i, &tmpset)) {
                 // call our orchestartion function to hanle it
                 struct client* client_strut = return_client_struct(i, NULL);
-                int result = handle_client_orchestration(i, client_strut);
+                int result = handle_client_orchestration(i, client_strut, &allset, &maxfd);
             }
         }
     }
@@ -138,12 +138,13 @@ int main(int argc, char* argv[]){
     close(listenfd);
 }
 
-static int handle_client_orchestration(int fd, struct client *select_client){
+static int handle_client_orchestration(int fd, struct client *select_client, fd_set *allset, int *maxfd){
     // read message and delegate task to handle_client_action
     int nbytes;
     nbytes = read(fd, select_client->after, select_client->buf_room);
     if (nbytes == 0) {
-        // socket has closed
+        // socket has closed mid connection
+        remove_client(select_client, allset, maxfd);
         return -1;
     }
     else if (nbytes > 0) {
@@ -151,7 +152,11 @@ static int handle_client_orchestration(int fd, struct client *select_client){
         int message_end;
         
         while ((message_end = find_network_newline(select_client->buf, select_client->buf_len, true)) != -1){
-            handle_client_action(fd, select_client);
+            int result = handle_client_action(fd, select_client, allset, maxfd);
+            if (result == -1) {
+                // client disconnected
+                break;
+            }
             
             // no need to subtract since pointer arithmetic gives int
             memmove(select_client->buf, &select_client->buf[message_end], (select_client->buf_len - message_end)); 
@@ -173,7 +178,7 @@ static int handle_client_orchestration(int fd, struct client *select_client){
     return 1;
 }
 
-static void handle_client_action(int fd, struct client *select_client){
+static int handle_client_action(int fd, struct client *select_client, fd_set *allset, int *maxfd){
     // final_message are all mesages with person who sent it + message like Alice: So call guys
     char final_message[MAX_BUF];
 
@@ -192,7 +197,7 @@ static void handle_client_action(int fd, struct client *select_client){
         char *message = "Message Blank\r\n";
 
         if (check_empty_input(select_client, position, message)){
-            return;
+            return 1;
         }
 
         // 2. not empty, get the name, add the name, and write message
@@ -219,7 +224,7 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
-            return;
+            return 1;
         }
 
         // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
@@ -229,7 +234,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Message Empty\r\n";
 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
             bool valid_command = extract_content(server_message, select_client->buf, 9, '\r');
 
@@ -239,7 +244,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
             // 2. not empty, get the person name who sent it, get the message, broadcast message to everyone
             snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
@@ -252,7 +257,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Channel Name Missing! Try again\r\n";
 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // see if the channel exists + valid command
@@ -264,7 +269,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             bool valid_command = extract_content(channel_name, select_client->buf, 13, ':');
@@ -276,7 +281,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
             
             if (!valid_command) {
@@ -285,7 +290,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // see if they are in the channel already
@@ -303,7 +308,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // extract the message, ignore return value, message always has \r
@@ -316,7 +321,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
             snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
 
@@ -332,7 +337,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
             // get the part of the string specifying all the channels
             char channel_names[(MAX_CHANNEL_NAME * MAX_CHANNELS) + 31] = {'\0'};
@@ -343,7 +348,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Message Is Blank\r\n";
 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // extract the message, ignore return value, message always has \r
@@ -372,7 +377,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // check if they even specified the person
@@ -382,7 +387,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // check if that person exists
@@ -394,7 +399,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // check if message is empty
@@ -402,7 +407,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Message Is Empty\r\n";
                 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // extract the message, ignore return value, message always has \r
@@ -421,7 +426,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Channel Name Did Not Specify!\r\n";
 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // extract the channel name out
@@ -437,7 +442,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             if (channel_array_index == -2){
@@ -446,7 +451,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             all_channel_array[channel_array_index].id = channel_array_index;
@@ -467,7 +472,7 @@ static void handle_client_action(int fd, struct client *select_client){
             char *message = "Channel Name did Not Specify!\r\n";
 
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // get channel name
@@ -483,7 +488,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // see if they are in the channel already OR if they reached max channel limit
@@ -510,7 +515,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
             if (num_channel_join == MAX_CHANNEL_PER_CLIENT){
                 char *message = "You Are In Max Number Of Channels. Leave One First Before You Join This One\r\n";
@@ -518,7 +523,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // add channel id to the client struct and give messsage
@@ -536,7 +541,7 @@ static void handle_client_action(int fd, struct client *select_client){
             position = (select_client->buf) + 15;
             char *message = "Channel Name Did Not Specify! Try Again\r\n";
             if (check_empty_input(select_client, position, message)){
-                return;
+                return 1;
             }
 
             // get channel name
@@ -552,7 +557,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // see if they are in the channel already
@@ -570,7 +575,7 @@ static void handle_client_action(int fd, struct client *select_client){
                     perror("write");
                     exit(1);
                 }
-                return;
+                return 1;
             }
 
             // remove channel id in client struct and give messsage
@@ -641,8 +646,12 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
-        }
+        } else if(strncmp(select_client->buf, "/quit", 5) == 0) {
+            // reset client_array for this client
+            remove_client(select_client, allset, maxfd);
+            return -1; // -1 to symbol when we return, do not memove anbd just continue
 
+        }
         else {
             // check to see if the user joined first before hand
             char *message = "Invalid Command Try Again\r\n";
@@ -650,11 +659,27 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
-            return;
         }
     }
+    return 1;
 }
 
+static void remove_client(struct client *select_client, fd_set *allset, int *maxfd){
+    int tmp_fd = select_client->fd;
+    select_client->fd = -1;
+    memset(select_client->name, '\0', sizeof(select_client->name));
+    memset(select_client->buf, '\0', sizeof(select_client->buf));
+    select_client->buf_len = 0;
+    memset(select_client->channel, -1, sizeof(select_client->channel));
+    select_client->after  = select_client->buf;
+    select_client->buf_room = MAX_BUF;
+    
+    FD_CLR(tmp_fd, allset);
+    close(tmp_fd);
+    if (tmp_fd == *maxfd){
+        *maxfd -= 1;
+    }
+}
 static void broadcast_everyone(char *message){
     for (int i = 0; i < MAX_CLIENTS; i ++){
         if (all_client_array[i].fd != -1) {
