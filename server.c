@@ -184,14 +184,13 @@ static void handle_client_action(int fd, struct client *select_client){
     // Alice: joined coffee channel
     char server_event[MAX_BUF];
     char *position;
-    int nbytes;
 
     // 1. JOIN COMMAND [/join:<name>]
     if(strncmp(select_client->buf, "/join:", 6) == 0) {
         // 1. Check if message is empty
         position = (select_client->buf) + 6;
         char *message = "Message Blank\r\n";
-        
+
         if (check_empty_input(select_client, position, message)){
             return;
         }
@@ -214,6 +213,14 @@ static void handle_client_action(int fd, struct client *select_client){
 
     else{
         // HERE ARE ALL THE NON-JOIN COMMANDS. CLIENT MUST JOIN FIRST BEFORE DOING ANYTHING. THIS WILL BE ONE OF THE ERROR CHECKING WE WILL WRITE ON REPORT
+        if (select_client->name[0] == '\0'){
+            char *message = "You Must Do Command: /join:<name> First\r\n";
+            if (write(select_client->fd, message, strlen(message)) == -1){
+                perror("write");
+                exit(1);
+            }
+            return;
+        }
 
         // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
         if (strncmp(select_client->buf, "/msg_all:", 9) == 0) {
@@ -292,7 +299,7 @@ static void handle_client_action(int fd, struct client *select_client){
 
             if (!in_channel){
                 char *message = "You Are Not In The Channel. Join First!\r\n";
-                if ((nbytes = write(select_client->fd, message, strlen(message))) == -1) {
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
