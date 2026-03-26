@@ -583,6 +583,23 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
+        } else if(strncmp(select_client->buf, "/who_online", 11) == 0) {
+            // assume that results fit here
+            char result[MAX_BUF] = {'\0'};
+            for (int i = 0; i < MAX_CLIENTS; i ++){
+                if (all_client_array[i].fd != -1){
+                    if (result[0] != '\0') {
+                        strcat(result, ", ");
+                    }
+                    strcat(result, all_client_array[i].name);
+                }
+            }
+            snprintf(final_message, sizeof(final_message), "People Online: %s\r\n", result);
+
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
         }
 
         else {
