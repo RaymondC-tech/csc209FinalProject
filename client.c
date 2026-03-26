@@ -68,6 +68,7 @@ int main(int argc, char* argv[]){
             if (n_bytes == 0) {
                 // server shutted down
                 // diconnect the client
+                break;
             }
 
             buf_len += n_bytes;;
