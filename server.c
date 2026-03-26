@@ -57,7 +57,8 @@ static void handle_client_action(int fd, struct client *select_client);
 static void broadcast_everyone(char *message);
 static void broadcast_room(struct client *select_client, char *channel_name, char *message);
 
-bool extract_content(char *dest, char *src, int offset, char condition);
+static bool check_empty_input(struct client* select_client, char *position, char *message);
+static bool extract_content(char *dest, char *src, int offset, char condition);
 
 
 int main(int argc, char* argv[]){
@@ -66,7 +67,7 @@ int main(int argc, char* argv[]){
     initialize_channel_array();
 
     // socket + bind + listen
-    int listenfd = bindandlisten(PORT); // sets up a listening socket
+    int listenfd = bindandlisten(PORT); 
 
     int client_fd, maxfd, sockets_ready;
     fd_set allset;
@@ -102,7 +103,7 @@ int main(int argc, char* argv[]){
 
             // 3. if no space tell them no space else add them to array
             if (space_client_array == -1) {
-                char *message = "Chat Server Reached Max Capacity. Try again Later!!\r\n";
+                char *message = "Chat Server Reached Max Capacity. Try Again Later!!\r\n";
                 if ((write_bytes = write(client_fd, message, strlen(message))) == -1){
                     perror("write");
                     exit(1);
@@ -112,7 +113,7 @@ int main(int argc, char* argv[]){
             else {
                 // custom socket created for communicatoin between client and server
                 add_to_client_array(client_fd);
-                char *message = "WELCOME. Just one more step: Do /join:<name> to officially join the chat application\r\n";
+                char *message = "Welcome. One More Step: Do /join:<name> To Join\r\n";
                 if ((write_bytes = write(client_fd, message, strlen(message))) == -1){
                     perror("write");
                     exit(1);
@@ -161,7 +162,6 @@ static int handle_client_orchestration(int fd, struct client *select_client){
             if (select_client->buf_len == 0) {
                 memset(select_client->buf, '\0', sizeof(select_client->buf));
             }
-
         }
         select_client->after = &select_client->buf[select_client->buf_len]; 
         select_client->buf_room = MAX_BUF - select_client->buf_len;
@@ -174,9 +174,6 @@ static int handle_client_orchestration(int fd, struct client *select_client){
 }
 
 static void handle_client_action(int fd, struct client *select_client){
-    // client can 2. private dm, 3. dm all, 4. create room, 5. join room, 6. see who is online, 7. send emojis
-    // assuming when they first connect, they already joined the chat application server
-
     // final_message are all mesages with person who sent it + message like Alice: So call guys
     char final_message[MAX_BUF];
 
@@ -187,21 +184,18 @@ static void handle_client_action(int fd, struct client *select_client){
     // Alice: joined coffee channel
     char server_event[MAX_BUF];
     char *position;
-    int n;
+    int nbytes;
 
     // 1. JOIN COMMAND [/join:<name>]
     if(strncmp(select_client->buf, "/join:", 6) == 0) {
+        // 1. Check if message is empty
         position = (select_client->buf) + 6;
-
-        // 1. check if the message is empty
-        if (*position == '\r' && *(position + 1) == '\n') {
-            char *message = "Message is blank. Please write you name to join, max 30 character name\r\n";
-            if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                perror("write");
-                exit(1);
-            }
+        char *message = "Message Blank\r\n";
+        
+        if (check_empty_input(select_client, position, message)){
             return;
         }
+
         // 2. not empty, get the name, add the name, and write message
         int i = 6;
         while(select_client->buf[i] != '\r'){
@@ -210,9 +204,9 @@ static void handle_client_action(int fd, struct client *select_client){
         }
         select_client->name[i - 6] = '\0';
 
-        snprintf(final_message, sizeof(final_message), "WELCOME %s to chat application\r\n", select_client->name); 
+        snprintf(final_message, sizeof(final_message), "WELCOME %s To Chat Application\r\n", select_client->name); 
 
-        if ((n = write(select_client->fd, final_message, strlen(final_message))) == -1) {
+        if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
             perror("write");
             exit(1); //chagne ghe static functon header + this sissdue
         }
@@ -223,22 +217,18 @@ static void handle_client_action(int fd, struct client *select_client){
 
         // 2. MESSAGE EVERYONE COMMAND [msg_all:<message>]
         if (strncmp(select_client->buf, "/msg_all:", 9) == 0) {
+            // 1. check if message is empty
             position = select_client->buf + 9;
+            char *message = "Message Empty\r\n";
 
-            // 1. check if the message is empty
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
             bool valid_command = extract_content(server_message, select_client->buf, 9, '\r');
 
             if (!valid_command) {
-                char *message = "Invalid command. Please follow the commands exactly\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Invalid Command\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -252,13 +242,9 @@ static void handle_client_action(int fd, struct client *select_client){
         else if(strncmp(select_client->buf, "/msg_channel_", 13) == 0){
             // see if they put channel name
             position = (select_client->buf) + 13;
+            char *message = "Channel Name Missing! Try again\r\n";
 
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Channel name did not specify! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -266,8 +252,8 @@ static void handle_client_action(int fd, struct client *select_client){
             char channel_name[MAX_CHANNEL_NAME] = {'\0'};
             // check if there is a : before calling helper for safety
             if (strstr(select_client->buf, ":") == NULL){
-                char *message = "Message format is wrong. Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Message Format Wrong. Try again\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -278,8 +264,8 @@ static void handle_client_action(int fd, struct client *select_client){
             struct channel* channel_struct = get_channel_struct(channel_name);
 
             if (channel_struct == NULL){
-                char *message = "Channel name does not exist! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Channel Name Does Not Exist! Try again\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -287,8 +273,8 @@ static void handle_client_action(int fd, struct client *select_client){
             }
             
             if (!valid_command) {
-                char *message = "Invalid command. Please follow the commands exactly\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Invalid Command\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -305,8 +291,8 @@ static void handle_client_action(int fd, struct client *select_client){
             }
 
             if (!in_channel){
-                char *message = "You are not in the channel. Join first!\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "You Are Not In The Channel. Join First!\r\n";
+                if ((nbytes = write(select_client->fd, message, strlen(message))) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -318,8 +304,8 @@ static void handle_client_action(int fd, struct client *select_client){
 
             // see if they inputed a message:
             if (server_message[0] == '\0'){
-                char *message = "You did not input a message to broadcast to server. Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Message Is Empty. Try Again\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -327,25 +313,15 @@ static void handle_client_action(int fd, struct client *select_client){
             }
             snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
 
-            // message to everyone in that channel
-            for (int i = 0; i < MAX_CLIENTS; i ++){
-                if (all_client_array[i].fd != -1){
-                    for (int j = 0; j < MAX_CHANNEL_PER_CLIENT; j ++){
-                        if (all_client_array[i].channel[j] == channel_struct->id){
-                            if (write(all_client_array[i].fd, final_message, strlen(final_message)) == -1) {
-                                perror("write");
-                                exit(1);
-                            }
-                        }
-                    }
-                }
-            }
-            // messaging mutiple people /msg_multichannel_<channel_name, channel_name>:<message>
+            // message everyone in the channel
+            broadcast_room(select_client, channel_name, final_message);
+
+        // messaging mutiple people /msg_multichannel_<channel_name, channel_name>:<message>
         } else if(strncmp(select_client->buf, "/msg_multichannel_", 18) == 0){
             // first check if there is a :
             if (strstr(select_client->buf, ":") == NULL){
-                char *message = "Message format is wrong. Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Message Format Is Wrong. Try again\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -355,17 +331,11 @@ static void handle_client_action(int fd, struct client *select_client){
             char channel_names[(MAX_CHANNEL_NAME * MAX_CHANNELS) + 31] = {'\0'};
             extract_content(channel_names, select_client->buf, 18, ':');
 
-            // get the message
-            // check if message is empty
+            // check message is empty
             position = select_client->buf + 18 + strlen(channel_names) + 1;
+            char *message = "Message Is Blank\r\n";
 
-            // 1. check if the message is empty
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -390,8 +360,8 @@ static void handle_client_action(int fd, struct client *select_client){
             bool valid_command = extract_content(sender_name, select_client->buf, 5, ':');
 
             if (!valid_command) {
-                char *message = "Invalid command. Please follow the commands exactly\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Invalid Command. Please Follow The Commands Exactly\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -422,14 +392,9 @@ static void handle_client_action(int fd, struct client *select_client){
 
             // check if message is empty
             position = select_client->buf + 5 + strlen(sender_name) + 1;
-
-            // 1. check if the message is empty
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            char *message = "Message Is Empty\r\n";
+                
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -446,13 +411,9 @@ static void handle_client_action(int fd, struct client *select_client){
         else if(strncmp(select_client->buf, "/create_channel:", 16) == 0) {
             // see if they put channel name
             position = (select_client->buf) + 16;
+            char *message = "Channel Name Did Not Specify!\r\n";
 
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Channel name did not specify! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -463,10 +424,9 @@ static void handle_client_action(int fd, struct client *select_client){
             // see if there are any more rooms to add channel or duplicate channel name
             int channel_array_index = exists_channel_room(channel_name);
 
-
             if (channel_array_index == -1){
-                char *message = "Max channel created for the server. Sorry\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Max Channel Created For The Server. Sorry\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -474,8 +434,8 @@ static void handle_client_action(int fd, struct client *select_client){
             }
 
             if (channel_array_index == -2){
-                char *message = "Duplicated channel name. Use a different channel name\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Duplicated Channel Name. Use Different Name\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -485,27 +445,21 @@ static void handle_client_action(int fd, struct client *select_client){
             all_channel_array[channel_array_index].id = channel_array_index;
             strcpy(all_channel_array[channel_array_index].name, channel_name);
 
-            snprintf(final_message, sizeof(final_message),"Successfully created channel: %s\r\n", all_channel_array[channel_array_index].name);
+            snprintf(final_message, sizeof(final_message),"Successfully Created Channel: %s\r\n", all_channel_array[channel_array_index].name);
 
             // send confirming message that you joined channel channel
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
                 perror("write");
                 exit(1);
             }
-
         }
-
         // JOIN A CHANNEL
         else if(strncmp(select_client->buf, "/join_channel:", 14) == 0) {
             // see if they put channel name
             position = (select_client->buf) + 14;
+            char *message = "Channel Name did Not Specify!\r\n";
 
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Channel name did not specify! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -517,8 +471,8 @@ static void handle_client_action(int fd, struct client *select_client){
             struct channel* channel_struct = get_channel_struct(channel_name);
 
             if (channel_struct == NULL){
-                char *message = "Channel name does not exist! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Channel Name Does Not Exist!\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -544,16 +498,16 @@ static void handle_client_action(int fd, struct client *select_client){
             }
 
             if (in_channel){
-                char *message = "You are already in a channel. Leave it First\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "You Are Already In This Channel.\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
                 return;
             }
             if (num_channel_join == MAX_CHANNEL_PER_CLIENT){
-                char *message = "You are already in a channel. Leave it First\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "You Are In Max Number Of Channels. Leave One First Before You Join This One\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -563,7 +517,7 @@ static void handle_client_action(int fd, struct client *select_client){
             // add channel id to the client struct and give messsage
             select_client->channel[valid_index] = channel_struct->id;
 
-            snprintf(final_message, sizeof(final_message),"Successfully join: %s\r\n", channel_struct->name);
+            snprintf(final_message, sizeof(final_message),"Successfully Join Channel: %s\r\n", channel_struct->name);
 
             // send confirming message that you joined channel
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
@@ -573,13 +527,8 @@ static void handle_client_action(int fd, struct client *select_client){
         } else if(strncmp(select_client->buf, "/leave_channel:", 15) == 0) {
             // see if they put channel name
             position = (select_client->buf) + 15;
-
-            if (*position == '\r' && *(position + 1) == '\n') {
-                char *message = "Channel name did not specify! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
-                    perror("write");
-                    exit(1);
-                }
+            char *message = "Channel Name Did Not Specify! Try Again\r\n";
+            if (check_empty_input(select_client, position, message)){
                 return;
             }
 
@@ -591,8 +540,8 @@ static void handle_client_action(int fd, struct client *select_client){
             struct channel* channel_struct = get_channel_struct(channel_name);
 
             if (channel_struct == NULL){
-                char *message = "Channel name does not exist! Try again\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "Channel Name Does Not Exist! Try Again\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -609,8 +558,8 @@ static void handle_client_action(int fd, struct client *select_client){
             }
 
             if (client_channel_index == -1){
-                char *message = "You are not in this channel. Cant't leave\r\n";
-                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                char *message = "You Are Not In This Channel. Cannot Leave\r\n";
+                if (write(select_client->fd, message, strlen(message)) == -1) {
                     perror("write");
                     exit(1);
                 }
@@ -620,7 +569,7 @@ static void handle_client_action(int fd, struct client *select_client){
             // remove channel id in client struct and give messsage
             select_client->channel[client_channel_index] = -1;
 
-            snprintf(final_message, sizeof(final_message),"Successfully left: %s\r\n", channel_struct->name);
+            snprintf(final_message, sizeof(final_message),"Successfully Left Channel: %s\r\n", channel_struct->name);
 
             // send confirming message that you left channel
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
@@ -631,8 +580,8 @@ static void handle_client_action(int fd, struct client *select_client){
 
         else {
             // check to see if the user joined first before hand
-            char *message = "INVALID COMMAND TRY AGAIN\r\n";
-            if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+            char *message = "Invalid Command Try Again\r\n";
+            if (write(select_client->fd, message, strlen(message)) == -1) {
                 perror("write");
                 exit(1);
             }
@@ -674,7 +623,7 @@ static void broadcast_room(struct client *select_client, char *channel_name, cha
     }
 
     for (int i = 0; i < MAX_CLIENTS; i ++){
-        if (all_client_array[i].fd != -1 && all_client_array[i].fd != select_client->fd){
+        if (all_client_array[i].fd != -1){
             for (int j = 0; j < MAX_CHANNEL_PER_CLIENT; j ++){
                 if (all_client_array[i].channel[j] == channel_struct->id){
                     if (write(all_client_array[i].fd, message, strlen(message)) == -1) {
@@ -764,7 +713,18 @@ static int exists_channel_room(char *channel_name){
     return channel_array_index;
 }
 
-bool extract_content(char *dest, char *src, int offset, char condition){
+static bool check_empty_input(struct client* select_client, char *position, char *message){
+    if (*position == '\r' && *(position + 1) == '\n') {
+        if (write(select_client->fd, message, strlen(message)) == -1) {
+            perror("write");
+            exit(1);
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool extract_content(char *dest, char *src, int offset, char condition){
     int i = offset;
     while (src[i] != condition && src[i] != '\r') {
         dest[i - offset] = src[i];
