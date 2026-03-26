@@ -4,7 +4,7 @@
 #include <netinet/in.h>    /* Internet domain header, for struct sockaddr_in */
 #include <stdbool.h>
 
-#define MAX_BUF 128
+#define MAX_BUF 1024
 
 struct sockaddr_in *server_address_struct(int port);
 int set_up_server_socket(struct sockaddr_in *self, int num_queue);

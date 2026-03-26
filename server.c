@@ -619,6 +619,28 @@ static void handle_client_action(int fd, struct client *select_client){
                 perror("write");
                 exit(1);
             }
+        } 
+        else if(strncmp(select_client->buf, "/list_command", 13) == 0) {
+            // assume that results fit here
+            char *result = "Join Chat Application: /join:<name>\r\n"
+                            "Message Everyone in Application: /msg_all<message>\r\n"
+                           "Message Specific Person: /msg_<person_name>:<message>\r\n"
+                            "Message Specific Channel: /msg_channel_<channel_name>:<message>\r\n"
+                            "Message Multiple Channel: /msg_multichannel_<channel_name>,<channel_name>....:<message>\r\n"
+                            "Join Channel: /join_channel:<channel_name>\r\n"
+                            "Create Channel: /create_channel:<channel_name>\r\n"
+                            "Leave Channel leave_channel:<channel_name>\r\n"
+                            "Check Who Is Online: /who_online\r\n"
+                            "List Channels You Are Currently In: /list_channel\r\n"
+                            "List Commands Chat Application Handles: /list_command\r\n"
+                            "Leave Chat Server: /quit";
+
+            snprintf(final_message, sizeof(final_message), "Chat Application Commands:\n%s\r\n", result);
+
+            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+                perror("write");
+                exit(1);
+            }
         }
 
         else {
