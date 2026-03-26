@@ -55,7 +55,7 @@ static int handle_client_orchestration(int fd, struct client *select_client);
 static void handle_client_action(int fd, struct client *select_client);
 
 static void broadcast_everyone(char *message);
-static void broadcast_room(struct client *top, char *s, int size);
+static void broadcast_room(struct client *select_client, char *channel_name, char *message);
 
 bool extract_content(char *dest, char *src, int offset, char condition);
 
@@ -264,6 +264,16 @@ static void handle_client_action(int fd, struct client *select_client){
 
             // see if the channel exists + valid command
             char channel_name[MAX_CHANNEL_NAME] = {'\0'};
+            // check if there is a : before calling helper for safety
+            if (strstr(select_client->buf, ":") == NULL){
+                char *message = "Message format is wrong. Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
             bool valid_command = extract_content(channel_name, select_client->buf, 13, ':');
             struct channel* channel_struct = get_channel_struct(channel_name);
 
@@ -329,6 +339,45 @@ static void handle_client_action(int fd, struct client *select_client){
                         }
                     }
                 }
+            }
+            // messaging mutiple people /msg_multichannel_<channel_name, channel_name>:<message>
+        } else if(strncmp(select_client->buf, "/msg_multichannel_", 18) == 0){
+            // first check if there is a :
+            if (strstr(select_client->buf, ":") == NULL){
+                char *message = "Message format is wrong. Try again\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+            // get the part of the string specifying all the channels
+            char channel_names[(MAX_CHANNEL_NAME * MAX_CHANNELS) + 31] = {'\0'};
+            extract_content(channel_names, select_client->buf, 18, ':');
+
+            // get the message
+            // check if message is empty
+            position = select_client->buf + 18 + strlen(channel_names) + 1;
+
+            // 1. check if the message is empty
+            if (*position == '\r' && *(position + 1) == '\n') {
+                char *message = "Message is blank. Please write something if you wanted to message everyone\r\n";
+                if ((n = write(select_client->fd, message, strlen(message))) == -1) {
+                    perror("write");
+                    exit(1);
+                }
+                return;
+            }
+
+            // extract the message, ignore return value, message always has \r
+            extract_content(server_message, select_client->buf, 18 + strlen(channel_names) + 1, '\r');
+            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+     
+            // loop through it and call the function to write to everyone else inside those channels
+            char* segment = strtok(channel_names, ",");
+            while(segment != NULL) {
+                broadcast_room(select_client, segment, final_message);
+                segment = strtok(NULL, ",");
             }
         }
 
@@ -598,6 +647,41 @@ static void broadcast_everyone(char *message){
             if (write(all_client_array[i].fd, message, strlen(message)) == -1) {
                 perror("write");
                 exit(1);
+            }
+        }
+    }
+}
+
+static void broadcast_room(struct client *select_client, char *channel_name, char *message){
+
+    struct channel* channel_struct = get_channel_struct(channel_name);
+
+    if (channel_struct == NULL) {
+        return;
+    }
+
+    // check if select_client is inside the room to broadcast it
+    bool sender_in_channel = false;
+    for (int i = 0; i < MAX_CHANNEL_PER_CLIENT; i++) {
+        if (select_client->channel[i] == channel_struct->id){
+            sender_in_channel = true;
+            break;
+        }
+    }
+
+    if (!sender_in_channel){
+        return;
+    }
+
+    for (int i = 0; i < MAX_CLIENTS; i ++){
+        if (all_client_array[i].fd != -1 && all_client_array[i].fd != select_client->fd){
+            for (int j = 0; j < MAX_CHANNEL_PER_CLIENT; j ++){
+                if (all_client_array[i].channel[j] == channel_struct->id){
+                    if (write(all_client_array[i].fd, message, strlen(message)) == -1) {
+                        perror("write");
+                        exit(1);
+                    }
+                }
             }
         }
     }
