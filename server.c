@@ -38,11 +38,10 @@ struct channel all_channel_array[MAX_CLIENTS];
 
 
 static void initialize_client_array();
-static int client_array_has_room(int fd);
+static int client_array_has_room();
 static void add_to_client_array(int fd);
 static struct client* return_client_struct(int fd, char* name);
 
-static struct client add_client(int listen_soc, char *name);
 static void remove_client(struct client *select_client, fd_set *allset, int *maxfd);
 
 
@@ -51,8 +50,8 @@ static struct channel* get_channel_struct(char *channel_name);
 static int exists_channel_room(char *channel_name);
 
 
-static int handle_client_orchestration(int fd, struct client *select_client, fd_set *allset, int *maxfd);
-static int handle_client_action(int fd, struct client *select_client, fd_set *allset, int *maxfd);
+static void handle_client_orchestration(struct client *select_client, fd_set *allset, int *maxfd);
+static int handle_client_action(struct client *select_client, fd_set *allset, int *maxfd);
 
 static void broadcast_everyone(char *message);
 static void broadcast_room(struct client *select_client, char *channel_name, char *message);
@@ -61,7 +60,8 @@ static bool check_empty_input(struct client* select_client, char *position, char
 static bool extract_content(char *dest, char *src, int offset, char condition);
 
 
-int main(int argc, char* argv[]){
+// using port 57179, run doing ./server
+int main(){
     // initialize the client array and channel array to be default -1 file descriptor each
     initialize_client_array();
     initialize_channel_array();
@@ -98,7 +98,7 @@ int main(int argc, char* argv[]){
                 exit(1);
             }
             // 2. see if there is enough space to add to the client_array
-            int space_client_array = client_array_has_room(client_fd);
+            int space_client_array = client_array_has_room();
             int write_bytes;
 
             // 3. if no space tell them no space else add them to array
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]){
             if (i != listenfd && FD_ISSET(i, &tmpset)) {
                 // call our orchestartion function to hanle it
                 struct client* client_strut = return_client_struct(i, NULL);
-                int result = handle_client_orchestration(i, client_strut, &allset, &maxfd);
+                handle_client_orchestration(client_strut, &allset, &maxfd);
             }
         }
     }
@@ -138,24 +138,24 @@ int main(int argc, char* argv[]){
     close(listenfd);
 }
 
-static int handle_client_orchestration(int fd, struct client *select_client, fd_set *allset, int *maxfd){
+static void handle_client_orchestration(struct client *select_client, fd_set *allset, int *maxfd){
     // read message and delegate task to handle_client_action
     int nbytes;
-    nbytes = read(fd, select_client->after, select_client->buf_room);
+    nbytes = read(select_client->fd, select_client->after, select_client->buf_room);
     if (nbytes == 0) {
         // socket has closed mid connection
         remove_client(select_client, allset, maxfd);
-        return -1;
+        return;
     }
     else if (nbytes > 0) {
         select_client->buf_len += nbytes;
         int message_end;
         
         while ((message_end = find_network_newline(select_client->buf, select_client->buf_len, true)) != -1){
-            int result = handle_client_action(fd, select_client, allset, maxfd);
+            int result = handle_client_action(select_client, allset, maxfd);
             if (result == -1) {
-                // client disconnected
-                break;
+                // client disconnected, handled in the source code the disconnection to remove client
+                return;
             }
             
             // no need to subtract since pointer arithmetic gives int
@@ -175,19 +175,15 @@ static int handle_client_orchestration(int fd, struct client *select_client, fd_
         perror("read");
         exit(1);
     }
-    return 1;
 }
 
-static int handle_client_action(int fd, struct client *select_client, fd_set *allset, int *maxfd){
+static int handle_client_action(struct client *select_client, fd_set *allset, int *maxfd){
     // final_message are all mesages with person who sent it + message like Alice: So call guys
-    char final_message[MAX_BUF];
+    char final_message[MAX_BUF] = {'\0'};
 
-    // server_message is the specific message send by the person
-    char server_message[MAX_BUF];
+    // server_message intermediate that is not properly formated with everything
+    char server_message[MAX_BUF] = {'\0'};
 
-    // server_event are not direclty messages to someone, but broadcast an event
-    // Alice: joined coffee channel
-    char server_event[MAX_BUF];
     char *position;
 
     // 1. JOIN COMMAND [/join:<name>]
@@ -209,7 +205,7 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
         select_client->name[i - 6] = '\0';
 
         snprintf(final_message, sizeof(final_message), "WELCOME %s To Chat Application\r\n", select_client->name); 
-
+        
         if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
             perror("write");
             exit(1); //chagne ghe static functon header + this sissdue
@@ -247,7 +243,10 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
                 return 1;
             }
             // 2. not empty, get the person name who sent it, get the message, broadcast message to everyone
-            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+            strcat(final_message, select_client->name);
+            strcat(final_message, ": ");
+            strcat(final_message, server_message);
+            strcat(final_message, "\r\n");
 
             broadcast_everyone(final_message);
         }
@@ -323,7 +322,10 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
                 }
                 return 1;
             }
-            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+            strcat(final_message, select_client->name);
+            strcat(final_message, ": ");
+            strcat(final_message, server_message);
+            strcat(final_message, "\r\n");
 
             // message everyone in the channel
             broadcast_room(select_client, channel_name, final_message);
@@ -353,7 +355,10 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
 
             // extract the message, ignore return value, message always has \r
             extract_content(server_message, select_client->buf, 18 + strlen(channel_names) + 1, '\r');
-            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+            strcat(final_message, select_client->name);
+            strcat(final_message, ": ");
+            strcat(final_message, server_message);
+            strcat(final_message, "\r\n");
      
             // loop through it and call the function to write to everyone else inside those channels
             char* segment = strtok(channel_names, ",");
@@ -412,7 +417,10 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
 
             // extract the message, ignore return value, message always has \r
             extract_content(server_message, select_client->buf, 5 + strlen(sender_name) + 1, '\r');
-            snprintf(final_message, sizeof(final_message),"%s: %s\r\n", select_client->name, server_message);
+            strcat(final_message, select_client->name);
+            strcat(final_message,": ");
+            strcat(final_message, server_message);
+            strcat(final_message,"\r\n");
 
             // message to that person
             if (write(receiver_struct->fd, final_message, strlen(final_message)) == -1) {
@@ -599,7 +607,9 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
                     strcat(result, all_client_array[i].name);
                 }
             }
-            snprintf(final_message, sizeof(final_message), "People Online: %s\r\n", result);
+            strcat(final_message, "People Online: ");
+            strcat(final_message, result);
+            strcat(final_message,"\r\n");
 
             if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
                 perror("write");
@@ -627,22 +637,20 @@ static int handle_client_action(int fd, struct client *select_client, fd_set *al
         } 
         else if(strncmp(select_client->buf, "/list_command", 13) == 0) {
             // assume that results fit here
-            char *result = "Join Chat Application: /join:<name>\r\n"
-                            "Message Everyone in Application: /msg_all<message>\r\n"
-                           "Message Specific Person: /msg_<person_name>:<message>\r\n"
+            char *result = "Join: /join:<name>\r\n"
+                            "Message Everyone: /msg_all<message>\r\n"
+                            "Message Person: /msg_<person_name>:<message>\r\n"
                             "Message Specific Channel: /msg_channel_<channel_name>:<message>\r\n"
                             "Message Multiple Channel: /msg_multichannel_<channel_name>,<channel_name>....:<message>\r\n"
                             "Join Channel: /join_channel:<channel_name>\r\n"
                             "Create Channel: /create_channel:<channel_name>\r\n"
                             "Leave Channel leave_channel:<channel_name>\r\n"
-                            "Check Who Is Online: /who_online\r\n"
-                            "List Channels You Are Currently In: /list_channel\r\n"
-                            "List Commands Chat Application Handles: /list_command\r\n"
-                            "Leave Chat Server: /quit";
+                            "Who Online: /who_online\r\n"
+                            "List Channels In: /list_channel\r\n"
+                            "List Commands: /list_command\r\n"
+                            "Leave: /quit\r\n";
 
-            snprintf(final_message, sizeof(final_message), "Chat Application Commands:\n%s\r\n", result);
-
-            if (write(select_client->fd, final_message, strlen(final_message)) == -1) {
+            if (write(select_client->fd, result, strlen(result)) == -1) {
                 perror("write");
                 exit(1);
             }
@@ -732,7 +740,7 @@ static void initialize_client_array(){
     }
 }
 
-static int client_array_has_room(int fd) {
+static int client_array_has_room() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (all_client_array[i].fd == -1){
             return i;

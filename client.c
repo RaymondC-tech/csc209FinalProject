@@ -12,7 +12,12 @@
 static void call_server(char* client_input, int client_socket, int bytes_to_write);
 
 int main(int argc, char* argv[]){
-    // call it as ./client.c 127.0.0.1 57179  (hostname, port)
+    // call it as ./client 127.0.0.1 57179  (hostname, port)
+
+    if (argc != 3) {
+        fprintf(stdout, "Invalid arguements\n");
+        exit(1);
+    }
     setbuf(stdout, NULL);
 
     // create socket + connect (// port + hostname)
