@@ -43,6 +43,16 @@ int set_up_server_socket(struct sockaddr_in *self, int num_queue) {
         exit(1);
     }
 
+    // Make sure we can reuse the port immediately after the
+    // server terminates. Avoids the "address in use" error
+    int on = 1;
+    int status = setsockopt(soc, SOL_SOCKET, SO_REUSEADDR,
+                            (const char *) &on, sizeof(on));
+    if (status < 0) {
+        perror("setsockopt");
+        exit(1);
+    }
+
     // Associate the process with the address and a port
     if (bind(soc, (struct sockaddr *)self, sizeof(*self)) < 0) {
         // bind failed; could be because port is in use.

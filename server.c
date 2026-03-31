@@ -13,7 +13,7 @@
 #define MAX_CHANNEL_PER_CLIENT 4
 
 #ifndef PORT
-  #define PORT 57179
+  #define PORT 4242
 #endif
 
 #include "socket.h"
